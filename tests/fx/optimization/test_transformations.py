@@ -22,11 +22,12 @@ from transformers.models.bert.modeling_bert import BertSelfAttention
 from transformers.utils.fx import symbolic_trace
 
 from optimum.fx.optimization import (
-    ChangeTrueDivToMulByInverse,
-    FuseBatchNorm1dInLinear,
-    FuseBatchNorm2dInConv2d,
-    FuseBiasInLinear,
     MergeLinears,
+    FuseBiasInLinear,
+    ChangeTrueDivToMulByInverse,
+    FuseBatchNorm2dInConv2d,
+    FuseBatchNorm1dInLinear,
+    FuseTanhInLinear,
     ReversibleTransformation,
     Transformation,
     compose,
@@ -346,6 +347,21 @@ def test_fuse_linear_batchnorm1d():
 
     num_batchnorm1d = sum(1 if isinstance(mod, torch.nn.BatchNorm1d) else 0 for mod in transformed_model.modules())
     assert num_batchnorm1d == 0, "there should be no BatchNorm1d left in the model after the transformation"
+
+
+def test_fuse_linear_tanh():
+    model = AutoModel.from_pretrained("hf-internal-testing/tiny-random-bert")
+    model.eval()
+    traced_model = symbolic_trace(model, input_names=["input_ids", "attention_mask", "token_type_ids"])
+
+    num_tanh = sum(1 if isinstance(mod, torch.nn.Tanh) else 0 for mod in traced_model.modules())
+    assert num_tanh != 0, "there should be at least one Tanh in the model to actually perform the test"
+
+    transformation = FuseTanhInLinear()
+    transformed_model = transformation(traced_model)
+
+    num_tanh = sum(1 if isinstance(mod, torch.nn.Tanh) else 0 for mod in transformed_model.modules())
+    assert num_tanh == 0, "there should be no Tanh left in the model after the transformation"
 
 
 def test_get_parent():
