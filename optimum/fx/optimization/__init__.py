@@ -17,6 +17,7 @@ from .transformations import (  # noqa
     FuseBatchNorm1dInLinear,
     FuseBatchNorm2dInConv2d,
     FuseBiasInLinear,
+    FuseTanhInLinear,
     MergeLinears,
     ReversibleTransformation,
     Transformation,
