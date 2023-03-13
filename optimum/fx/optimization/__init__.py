@@ -13,12 +13,12 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 from .transformations import (  # noqa
-    ChangeTrueDivToMulByInverse,
-    FuseBatchNorm1dInLinear,
-    FuseBatchNorm2dInConv2d,
-    FuseBiasInLinear,
-    FuseTanhInLinear,
     MergeLinears,
+    FuseBiasInLinear,
+    ChangeTrueDivToMulByInverse,
+    FuseBatchNorm2dInConv2d,
+    FuseBatchNorm1dInLinear,
+    FuseTanhInLinear,
     ReversibleTransformation,
     Transformation,
     compose,
