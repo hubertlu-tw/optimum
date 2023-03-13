@@ -685,6 +685,83 @@ class FuseBatchNorm1dInLinear(Transformation):
 
         return linear
 
+@add_docstring()
+class FuseTanhInLinear(Transformation):
+    """
+    Transformation that fuses `nn.Tanh` following `nn.Linear` into a single `nn.Linear`.
+    The fusion will be done only if the Linear has the hyperbolic tangent (Tanh) function
+    as sole following node.
+
+    For example, fusion will not be done in the case
+    ```
+         Linear
+         /   \\
+        /     \\
+    Linear     Tanh
+    ```
+
+    Example:
+    ```python
+    >>> from transformers.utils.fx import symbolic_trace
+    >>> from transformers import BertModel
+
+    >>> from optimum.fx.optimization import FuseTanhInLinear
+
+    >>> model = AutoModel.from_pretrained("bert-base-uncased")
+    >>> model.eval()  # doctest: +IGNORE_RESULT
+
+    >>> traced_model = symbolic_trace(
+    ...     model,
+    ...     input_names=["input_ids", "attention_mask", "token_type_ids"]
+    ... )
+
+    >>> transformation = FuseTanhInLinear()
+    >>> transformed_model = transformation(traced_model)
+    ```
+    """
+
+    preserves_computation = True
+
+    def transform(self, graph_module: "GraphModule") -> "GraphModule":
+        for node in graph_module.graph.nodes:
+            if node.op == "call_module" and node.args[0].op == "call_module":
+                if (
+                    type(graph_module.get_submodule(node.target)) is torch.nn.Tanh
+                    and type(graph_module.get_submodule(node.args[0].target)) is torch.nn.Linear
+                ):
+                    # handle the case torch.nn.Linear --> torch.nn.Tanh
+
+                    if len(node.args[0].users) > 1:  # Output of linear is used by other nodes
+                        continue
+
+                    candidate_linear = graph_module.get_submodule(node.args[0].target)
+                    candidate_tanh = graph_module.get_submodule(node.target)
+
+                    fused_linear = self.fuse(
+                        linear=candidate_linear, tanh=candidate_tanh, tanh_before=False
+                    )
+
+                    # replace the old nn.Linear by the fused one
+                    parent_name, _, name = node.args[0].target.rpartition(".")
+                    parent_module = graph_module.get_submodule(parent_name)
+                    setattr(parent_module, name, fused_linear)
+
+                    # delete nn.Tanh from the modules
+                    parent_name, _, name = node.target.rpartition(".")
+                    parent_module = graph_module.get_submodule(parent_name)
+                    delattr(parent_module, name)
+
+                    node.replace_all_uses_with(node.args[0])
+
+                    graph_module.graph.erase_node(node)  # delete Tanh
+        return graph_module
+
+    def fuse(self, linear: torch.nn.Linear, tanh: torch.nn.Tanh, tanh_before: bool):
+        linear.weight = torch.nn.Parameter(tanh(linear.weight))
+        # handle the case where there is no bias in the linear
+        linear.bias = torch.nn.Parameter(tanh(linear.bias)) if linear.bias is not None else None
+        return linear
+
 
 class DeepCopy(ReversibleTransformation):
     """
